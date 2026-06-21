@@ -2,6 +2,25 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type PartType = 'head' | 'body' | 'arm' | 'leg' | 'core' | 'tool';
 
+export type ResourceType = 'credits' | 'materials';
+
+export type SourcePage = 'blind-box' | 'missions' | 'repair' | 'inventory';
+
+export interface ResourceTransaction {
+  id: string;
+  resourceType: ResourceType;
+  sourcePage: SourcePage;
+  action: string;
+  amount: number;
+  beforeValue: number;
+  afterValue: number;
+  relatedRobotId?: string;
+  relatedRobotName?: string;
+  relatedPartId?: string;
+  relatedPartName?: string;
+  timestamp: number;
+}
+
 export type MissionType = 'transport' | 'cleaning' | 'rescue' | 'combat';
 
 export interface Part {
@@ -146,6 +165,7 @@ export interface GameState {
   assemblyPlans: AssemblyPlan[];
   config: GameConfig;
   selectedParts: Record<PartType, Part | null>;
+  resourceTransactions: ResourceTransaction[];
 }
 
 export interface GameActions {
@@ -159,6 +179,7 @@ export interface GameActions {
   spendCredits: (amount: number) => boolean;
   addMaterials: (amount: number) => void;
   spendMaterials: (amount: number) => boolean;
+  addResourceTransaction: (transaction: Omit<ResourceTransaction, 'id' | 'timestamp'>) => void;
   addMissionRecord: (record: MissionRecord) => void;
   addRepairRecord: (record: RepairRecord) => void;
   addAssemblyPlan: (plan: AssemblyPlan) => void;

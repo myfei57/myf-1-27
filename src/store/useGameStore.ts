@@ -10,6 +10,7 @@ import type {
   RepairRecord,
   AssemblyPlan,
   GameConfig,
+  ResourceTransaction,
 } from '../types';
 import {
   DEFAULT_CONFIG,
@@ -47,6 +48,7 @@ export const useGameStore = create<Store>()(
       assemblyPlans: [],
       config: DEFAULT_CONFIG,
       selectedParts: { ...EMPTY_SELECTED_PARTS },
+      resourceTransactions: [],
 
       addPart: (part) => set((state) => ({ parts: [...state.parts, part] })),
 
@@ -100,6 +102,17 @@ export const useGameStore = create<Store>()(
         return false;
       },
 
+      addResourceTransaction: (transaction) => {
+        const record: ResourceTransaction = {
+          ...transaction,
+          id: generateId(),
+          timestamp: Date.now(),
+        };
+        set((state) => ({
+          resourceTransactions: [record, ...state.resourceTransactions],
+        }));
+      },
+
       addMissionRecord: (record) =>
         set((state) => ({ missionRecords: [...state.missionRecords, record] })),
 
@@ -138,11 +151,24 @@ export const useGameStore = create<Store>()(
 
         const recycleRate = state.config.recyclingRates[part.rarity];
         const materialsGained = Math.floor(part.maxDurability * recycleRate);
+        const beforeMaterials = state.materials;
+        const afterMaterials = beforeMaterials + materialsGained;
 
         set((s) => ({
           parts: s.parts.filter((p) => p.id !== partId),
-          materials: s.materials + materialsGained,
+          materials: afterMaterials,
         }));
+
+        state.addResourceTransaction({
+          resourceType: 'materials',
+          sourcePage: 'inventory',
+          action: `拆解零件`,
+          amount: materialsGained,
+          beforeValue: beforeMaterials,
+          afterValue: afterMaterials,
+          relatedPartId: part.id,
+          relatedPartName: part.name,
+        });
       },
 
       repairRobot: (robotId) => {
@@ -159,9 +185,24 @@ export const useGameStore = create<Store>()(
         const durabilityNeeded = robot.maxDurability - robot.durability;
         const cost = durabilityNeeded * repairRules.materialCostPerPoint;
 
+        const beforeMaterials = state.materials;
+
         if (!state.spendMaterials(cost)) {
           return { success: false, cost, restored: 0 };
         }
+
+        const afterMaterials = beforeMaterials - cost;
+
+        state.addResourceTransaction({
+          resourceType: 'materials',
+          sourcePage: 'repair',
+          action: '维修机器人',
+          amount: -cost,
+          beforeValue: beforeMaterials,
+          afterValue: afterMaterials,
+          relatedRobotId: robot.id,
+          relatedRobotName: robot.name,
+        });
 
         const successRate = clamp(
           repairRules.baseSuccessRate - robot.repairCount * repairRules.degradeRate,
@@ -224,8 +265,38 @@ export const useGameStore = create<Store>()(
             credits: mission.rewards.credits,
             materials: mission.rewards.materials,
           };
+
+          const beforeCredits = state.credits;
+          const beforeMaterials = state.materials;
+
           state.addCredits(rewards.credits);
           state.addMaterials(rewards.materials);
+
+          if (rewards.credits > 0) {
+            state.addResourceTransaction({
+              resourceType: 'credits',
+              sourcePage: 'missions',
+              action: `任务奖励: ${mission.name}`,
+              amount: rewards.credits,
+              beforeValue: beforeCredits,
+              afterValue: beforeCredits + rewards.credits,
+              relatedRobotId: robot.id,
+              relatedRobotName: robot.name,
+            });
+          }
+
+          if (rewards.materials > 0) {
+            state.addResourceTransaction({
+              resourceType: 'materials',
+              sourcePage: 'missions',
+              action: `任务奖励: ${mission.name}`,
+              amount: rewards.materials,
+              beforeValue: beforeMaterials,
+              afterValue: beforeMaterials + rewards.materials,
+              relatedRobotId: robot.id,
+              relatedRobotName: robot.name,
+            });
+          }
 
           if (mission.rewards.blindBox) {
             const bonusParts = state.openBlindBox(mission.rewards.blindBox, true);
@@ -269,8 +340,20 @@ export const useGameStore = create<Store>()(
         const state = get();
         const price = BLIND_BOX_PRICES[type];
 
-        if (!free && !state.spendCredits(price)) {
-          return [];
+        if (!free) {
+          const beforeCredits = state.credits;
+          if (!state.spendCredits(price)) {
+            return [];
+          }
+          const afterCredits = beforeCredits - price;
+          state.addResourceTransaction({
+            resourceType: 'credits',
+            sourcePage: 'blind-box',
+            action: `开启${state.config.rarities[type].name}盲盒`,
+            amount: -price,
+            beforeValue: beforeCredits,
+            afterValue: afterCredits,
+          });
         }
 
         const parts: Part[] = [];
@@ -296,6 +379,7 @@ export const useGameStore = create<Store>()(
           repairRecords: [],
           assemblyPlans: [],
           selectedParts: { ...EMPTY_SELECTED_PARTS },
+          resourceTransactions: [],
         }),
     }),
     {
@@ -309,6 +393,7 @@ export const useGameStore = create<Store>()(
         repairRecords: state.repairRecords,
         assemblyPlans: state.assemblyPlans,
         config: state.config,
+        resourceTransactions: state.resourceTransactions,
       }),
     }
   )
